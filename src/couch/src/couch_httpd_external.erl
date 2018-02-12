@@ -65,7 +65,7 @@ json_req_obj(#httpd{mochi_req=Req,
         undefined ->
             MaxSize = config:get_integer("httpd", "max_http_request_size",
                 4294967296),
-            Req:recv_body(MaxSize);
+            maybe_decompress(Req, Req:recv_body(MaxSize));
         Else -> Else
     end,
     ParsedForm = case Req:get_primary_header_value("content-type") of
@@ -97,6 +97,14 @@ json_req_obj(#httpd{mochi_req=Req,
         {<<"cookie">>, to_json_terms(Req:parse_cookie())},
         {<<"userCtx">>, couch_util:json_user_ctx(Db)},
         {<<"secObj">>, couch_db:get_security(Db)}]}.
+
+maybe_decompress(Req, Body) ->
+    case Req:get_primary_header_value("content-encoding") of
+    "gzip" ->
+        zlib:gunzip(Body);
+    Else ->
+        Body
+    end.
 
 to_json_terms(Data) ->
     to_json_terms(Data, []).
