@@ -1,4 +1,5 @@
 %localstatelogdir%/*.log {
+       su couchdb couchdb
        weekly
        rotate 10
        copytruncate
