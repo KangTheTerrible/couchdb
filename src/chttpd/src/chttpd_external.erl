@@ -57,6 +57,13 @@ process_external_req(HttpReq, Db, Name) ->
         send_external_response(HttpReq, Response)
     end.
 
+maybe_decompress(Req, Body) ->
+    case Req:get_primary_header_value("content-encoding") of
+    "gzip" ->
+        zlib:gunzip(Body);
+    Else ->
+        Body
+    end.
 
 json_req_obj(Req, Db) ->
     json_req_obj(Req, Db, null).
@@ -97,7 +104,7 @@ json_req_obj_field(<<"headers">>, #httpd{mochi_req=Req}, _Db, _DocId) ->
 json_req_obj_field(<<"body">>, #httpd{req_body=undefined, mochi_req=Req}, _Db, _DocId) ->
     MaxSize = config:get_integer("httpd", "max_http_request_size", 4294967296),
     try
-        Req:recv_body(MaxSize)
+        maybe_decompress(Req, Req:recv_body(MaxSize))
     catch exit:normal ->
         exit({bad_request, <<"Invalid request body">>})
     end;
