@@ -22,6 +22,49 @@
 
 -include_lib("couch/include/couch_db.hrl").
 
+% handle_external_req/2
+% for the old type of config usage:
+% _external = {chttpd_external, handle_external_req}
+% with urls like
+% /db/_external/action/design/name
+handle_external_req(#httpd{
+                        path_parts=[_DbName, _External, UrlName | _Path]
+                    }=HttpReq, Db) ->
+    process_external_req(HttpReq, Db, UrlName);
+handle_external_req(#httpd{path_parts=[_, _]}=Req, _Db) ->
+    send_error(Req, 404, <<"external_server_error">>, <<"No server name specified.">>);
+handle_external_req(Req, _) ->
+    send_error(Req, 404, <<"external_server_error">>, <<"Broken assumption">>).
+
+% handle_external_req/3
+% for this type of config usage:
+% _action = {chttpd_external, handle_external_req, <<"action">>}
+% with urls like
+% /db/_action/design/name
+handle_external_req(HttpReq, Db, Name) ->
+    process_external_req(HttpReq, Db, Name).
+
+process_external_req(HttpReq, Db, Name) ->
+
+    Response = couch_external_manager:execute(binary_to_list(Name),
+        json_req_obj(HttpReq, Db)),
+
+    case Response of
+    {unknown_external_server, Msg} ->
+        send_error(HttpReq, 404, <<"external_server_error">>, Msg);
+    _ ->
+        send_external_response(HttpReq, Response)
+    end.
+
+
+maybe_decompress(Req, Body) ->
+    case Req:get_primary_header_value("content-encoding") of
+    "gzip" ->
+        zlib:gunzip(Body);
+    Else ->
+        Body
+    end.
+
 json_req_obj(Req, Db) ->
     json_req_obj(Req, Db, null).
 json_req_obj(Req, Db, DocId) ->
@@ -61,7 +104,7 @@ json_req_obj_field(<<"headers">>, #httpd{mochi_req=Req}, _Db, _DocId) ->
 json_req_obj_field(<<"body">>, #httpd{req_body=undefined, mochi_req=Req}, _Db, _DocId) ->
     MaxSize = config:get_integer("httpd", "max_http_request_size", 4294967296),
     try
-        Req:recv_body(MaxSize)
+        maybe_decompress(Req, Req:recv_body(MaxSize))
     catch exit:normal ->
         exit({bad_request, <<"Invalid request body">>})
     end;
